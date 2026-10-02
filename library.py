@@ -1,32 +1,42 @@
 from abc import ABC, abstractmethod
-from datetime import date, timedelta 
-
+from datetime import date, timedelta
+import json
+from pathlib import Path
 #Custom exceptions for library items
 class LibraryError(Exception):
     pass
 
+
 class LimitReachedError(LibraryError):
     pass
+
 
 class ItemNotFoundError(LibraryError):
     pass
 
+
 class MemberNotFoundError(LibraryError):
     pass
 
+
 class DuplicateIdError(LibraryError):
     pass
+
 
 class ItemUnavailableError(LibraryError):
     pass
 
 
+class StorageError(LibraryError):
+    pass
+
+
 class Item(ABC):
-    def __init__(self, item_id: str, title: str) -> None:
+    def __init__(self, item_id: str, title: str,available: bool = True, due_date: date | None = None) -> None:
         self._item_id = item_id
         self._title = title
-        self._available = True
-        self._due_date: date | None = None  # Optional due date for borrowed items
+        self._available = available
+        self._due_date: date | None = due_date  # Optional due date for borrowed items
 
     @property
     def is_available(self) -> bool:
@@ -46,7 +56,7 @@ class Item(ABC):
     @property
     def due_date(self) -> date | None:
         return self._due_date
-    
+
 
     def check_out(self) -> None:
         if self._available:
@@ -61,15 +71,22 @@ class Item(ABC):
         else:
             raise ItemUnavailableError("Item is already available in the library")
         self._due_date = None  # Reset due date when item is returned
-    
+
+    def item_from_dict(self, data: dict) -> "Item":
+        if "author" in data:
+            return Book.from_dict(data)
+        elif "director" in data:
+            return DVD.from_dict(data)
+        else:
+            raise StorageError("Item not found in storage")
 
     def __str__(self) -> str:
         return f"{type(self).__name__}({self._item_id}, {self._title}, available={self._available})"
 
 
 class Book(Item):
-    def __init__(self, item_id: str, title: str, author: str) -> None:
-        super().__init__(item_id, title)
+    def __init__(self, item_id: str, title: str, author: str, available: bool = True, due_date: date | None = None) -> None:
+        super().__init__(item_id, title, available, due_date)
         self._author = author
 
     @property
@@ -79,10 +96,23 @@ class Book(Item):
     def loan_days(self) -> int:
         return 21
 
+    def to_dict(self) -> dict:
+        return {
+            "item_id": self._item_id,
+            "title": self._title,
+            "author": self._author,
+            "available": self._available,
+            "due_date": self._due_date.isoformat() if self._due_date else None
+      }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Book":
+        return cls(data["item_id"], data["title"], data["author"],data["available"],data["due_date"]) #
+
 
 class DVD(Item):
-    def __init__(self, item_id: str, title: str, director: str, duration: int) -> None:
-        super().__init__(item_id, title)
+    def __init__(self, item_id: str, title: str, director: str, duration: int, available: bool = True, due_date: date | None = None) -> None:
+        super().__init__(item_id, title, available, due_date)
         self._duration = duration
         self._director = director
 
@@ -96,6 +126,24 @@ class DVD(Item):
 
     def loan_days(self) -> int:
         return 7
+
+    def to_dict(self) -> dict:
+        return {
+            "type": "DVD",
+            "item_id": self._item_id,
+            "title": self._title,
+            "director": self._director,
+            "duration": self._duration,
+            "available": self._available,
+            "due_date": self._due_date.isoformat() if self._due_date else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DVD":
+        due = data["due_date"]
+        return cls(
+            data["item_id"], data["title"], data["director"], data["duration"],
+            data["available"], date.fromisoformat(due) if due else None,)
 
 
 class Member:
@@ -132,6 +180,24 @@ class Member:
         else:
             item.return_item()
             self._borrowed.remove(item)
+
+    def to_dict(self) -> dict:
+        return {
+            "member_id": self._member_id,
+            "name": self._name,
+            "borrowed": [item.item_id for item in self._borrowed]
+        }
+  
+    @classmethod
+    def from_dict(cls, data: dict) -> "Member":
+        member = cls(data["member_id"], data["name"])
+        for item_data in data["borrowed"]:
+            member._borrowed.append(item)
+        return member
+
+    def restore_borrowed(self, items: list[Item]) -> None:
+        """Re-link already-lent items after loading (no check_out)."""
+        self._borrowed = list(items)
 
     def __str__(self) -> str:
         titles = [item.title for item in self._borrowed]
@@ -179,7 +245,7 @@ class Library:
             for item in member.borrowed:
                 if item.due_date is not None and current_date > item.due_date:
                     result.append(item)
-        return result 
+        return result
 
     def list_available_items(self) -> list[Item]:
         return [item for item in self._items.values() if item.is_available]
@@ -262,3 +328,25 @@ if __name__ == "__main__":
     print("Overdue today:", len(lib2.overdue_items(today)))                         # 0
     print("Overdue in 10 days:", len(lib2.overdue_items(today + timedelta(days=10))))  # 1 (the DVD)
     print("Overdue in 30 days:", len(lib2.overdue_items(today + timedelta(days=30))))  # 2 (both)
+
+    b = Book("b1", "Python Basics", "Someone")
+    data = b.to_dict()
+    print(data)
+    b2 = Book.from_dict(data)
+    print(b2)
+
+    d = DVD("d1", "Film 1", "Director", 90)
+    data_d = d.to_dict()
+    print(data_d)
+    d2 = DVD.from_dict(data_d)
+    print(d2)
+
+    m = Member("m1", "Anna")
+    book = Book("b1", "Python Basics", "Someone")
+    m.borrow_item(book)
+    print(m.to_dict())          # {'member_id': 'm1', 'name': 'Anna', 'borrowed': ['b1']}
+
+    d = DVD("d1", "Film", "Director", 90)
+    d.check_out()
+    d2 = DVD.from_dict(d.to_dict())
+    print(d2, d2.due_date == d.due_date)    # ... available=False  True
