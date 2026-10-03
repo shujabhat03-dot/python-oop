@@ -2,7 +2,10 @@ from abc import ABC, abstractmethod
 from datetime import date, timedelta
 import json
 from pathlib import Path
+from typing import Any
+
 #Custom exceptions for library items
+
 class LibraryError(Exception):
     pass
 
@@ -72,13 +75,9 @@ class Item(ABC):
             raise ItemUnavailableError("Item is already available in the library")
         self._due_date = None  # Reset due date when item is returned
 
-    def item_from_dict(self, data: dict) -> "Item":
-        if "author" in data:
-            return Book.from_dict(data)
-        elif "director" in data:
-            return DVD.from_dict(data)
-        else:
-            raise StorageError("Item not found in storage")
+    @abstractmethod
+    def to_dict(self) -> dict[str, Any]:
+        pass
 
     def __str__(self) -> str:
         return f"{type(self).__name__}({self._item_id}, {self._title}, available={self._available})"
@@ -96,8 +95,9 @@ class Book(Item):
     def loan_days(self) -> int:
         return 21
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
+            "type" : "Book",
             "item_id": self._item_id,
             "title": self._title,
             "author": self._author,
@@ -106,8 +106,12 @@ class Book(Item):
       }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "Book":
-        return cls(data["item_id"], data["title"], data["author"],data["available"],data["due_date"]) #
+    def from_dict(cls, data: dict[str, Any]) -> "Book":
+        due = data["due_date"]
+        return cls(
+            data["item_id"], data["title"], data["author"],
+            data["available"], date.fromisoformat(due) if due else None,
+        )
 
 
 class DVD(Item):
@@ -127,7 +131,7 @@ class DVD(Item):
     def loan_days(self) -> int:
         return 7
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "type": "DVD",
             "item_id": self._item_id,
@@ -144,6 +148,14 @@ class DVD(Item):
         return cls(
             data["item_id"], data["title"], data["director"], data["duration"],
             data["available"], date.fromisoformat(due) if due else None,)
+
+def item_from_dict(data: dict[str, Any]) -> Item:
+    kind = data.get("type")
+    if kind == "Book":
+     return Book.from_dict(data)
+    if kind == "DVD":
+     return DVD.from_dict(data)
+    raise StorageError(f"Unknown item type: {kind!r}")
 
 
 class Member:
@@ -181,7 +193,7 @@ class Member:
             item.return_item()
             self._borrowed.remove(item)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "member_id": self._member_id,
             "name": self._name,
@@ -189,11 +201,8 @@ class Member:
         }
   
     @classmethod
-    def from_dict(cls, data: dict) -> "Member":
-        member = cls(data["member_id"], data["name"])
-        for item_data in data["borrowed"]:
-            member._borrowed.append(item)
-        return member
+    def from_dict(cls, data: dict[str, Any]) -> "Member":
+        return cls(data["member_id"], data["name"])
 
     def restore_borrowed(self, items: list[Item]) -> None:
         """Re-link already-lent items after loading (no check_out)."""
@@ -249,6 +258,38 @@ class Library:
 
     def list_available_items(self) -> list[Item]:
         return [item for item in self._items.values() if item.is_available]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "items": [item.to_dict() for item in self._items.values()],
+            "members": [member.to_dict() for member in self._members.values()],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Library":
+        library = cls()
+
+        # 1. rebuild every item first, so members can find them
+        for item_data in data["items"]:
+            library.add_item(item_from_dict(item_data))
+
+        # 2. rebuild every member, then re-link what they hold
+        for member_data in data["members"]:
+            member = Member.from_dict(member_data)
+            library.add_member(member)
+
+            held: list[Item] = []
+            for item_id in member_data["borrowed"]:
+                try:
+                    held.append(library.get_item(item_id))
+                except ItemNotFoundError as e:
+                    raise StorageError(
+                        f"Member {member.member_id} holds unknown item {item_id}"
+                    ) from e
+            member.restore_borrowed(held)
+
+        return library
+         
 
     def search_text(self, text: str) -> list[Item]:
         return [item for item in self._items.values() if text.lower() in item.title.lower()]
@@ -350,3 +391,35 @@ if __name__ == "__main__":
     d.check_out()
     d2 = DVD.from_dict(d.to_dict())
     print(d2, d2.due_date == d.due_date)    # ... available=False  True
+
+    lib = Library()
+    lib.add_item(Book("b1", "Python Basics", "Someone"))
+    lib.add_item(DVD("d1", "Film", "Director", 90))
+    lib.add_member(Member("m1", "Anna"))
+    lib.lend_item("m1", "b1")
+
+    import pprint
+    pprint.pprint(lib.to_dict())
+
+    original = Library()
+    original.add_item(Book("b1", "Python Basics", "Someone"))
+    original.add_item(DVD("d1", "Film", "Director", 90))
+    original.add_member(Member("m1", "Anna"))
+    original.lend_item("m1", "b1")
+
+    copy = Library.from_dict(original.to_dict())
+    print(original)
+    print(copy)                                    # same counts
+    print(copy.get_member("m1"))                   # borrowed=['Python Basics']
+    print(copy.get_item("b1").is_available)        # False
+
+    copy.take_back_item("m1", "b1")                # must work without errors
+    print(copy.get_item("b1").is_available)        # True
+    print(original.get_item("b1").is_available)    # still False: separate objects   
+
+    bad = original.to_dict()
+    bad["members"][0]["borrowed"] = ["zzz"]
+    try:
+        Library.from_dict(bad)
+    except StorageError as e:
+        print("StorageError:", e)
