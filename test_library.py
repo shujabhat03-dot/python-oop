@@ -49,6 +49,19 @@ def test_member_has_reached_limit(lib: Library):
     lib.lend_item("m1","d2")
    assert lib.get_item("d2").is_available
    assert len(lib.get_member("m1").borrowed) == 3
+   
+
+def test_search_ignores_case(lib: Library):
+    lower = [i.title for i in lib.search_text("python")]
+    upper = [i.title for i in lib.search_text("PYTHON")]
+
+    assert len(lower) > 0
+    assert lower == upper
+    assert "Python Basics" in lower
+
+
+def test_search_no_match_returns_empty_list(lib: Library):
+    assert lib.search_text("zzz") == []
     
         
 
