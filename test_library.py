@@ -80,3 +80,19 @@ def test_lend_makes_item_unavailable(lib: Library):
     assert not lib.get_item("b1").is_available
     assert len(lib.list_available_items()) == before - 1
     
+def test_take_back_makes_item_available(lib:Library):
+    lib.lend_item("m1", "b1")
+    lib.take_back_item("m1", "b1")
+    
+    assert lib.get_item("b1").is_available
+    assert lib.get_member("m1").borrowed == []
+    
+
+def test_take_back_item_member_does_not_hold(lib: Library):
+    lib.lend_item("m1", "b1")
+
+    with pytest.raises(ItemNotFoundError):
+        lib.take_back_item("m2", "b1")
+
+    assert not lib.get_item("b1").is_available
+    assert len(lib.get_member("m1").borrowed) == 1
