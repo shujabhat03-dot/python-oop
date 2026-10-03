@@ -289,6 +289,26 @@ class Library:
             member.restore_borrowed(held)
 
         return library
+
+    def save(self, path: str | Path) -> None:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, indent=2)
+        except OSError as e:
+            raise StorageError(f"Could not save library to {path}") from e
+
+    @classmethod
+    def load(cls, path: str | Path) -> "Library":
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return cls.from_dict(data)
+        except FileNotFoundError as e:
+            raise StorageError(f"File not found: {path}") from e
+        except json.JSONDecodeError as e:
+            raise StorageError(f"File is not valid JSON: {path}") from e
+        except (KeyError, TypeError, ValueError) as e:
+            raise StorageError(f"File has missing or invalid data: {path}") from e
          
 
     def search_text(self, text: str) -> list[Item]:
@@ -421,5 +441,28 @@ if __name__ == "__main__":
     bad["members"][0]["borrowed"] = ["zzz"]
     try:
         Library.from_dict(bad)
+    except StorageError as e:
+        print("StorageError:", e)
+
+    lib = Library()
+    lib.add_item(Book("b1", "Python Basics", "Someone"))
+    lib.add_item(DVD("d1", "Film", "Director", 90))
+    lib.add_member(Member("m1", "Anna"))
+    lib.lend_item("m1", "b1")
+    lib.save("library.json")
+
+    loaded = Library.load("library.json")
+    print(loaded)                                  # same counts as the saved library
+    print(loaded.get_member("m1"))                 # borrowed=['Python Basics']
+    loaded.take_back_item("m1", "b1")              # must work
+
+    try:
+        Library.load("missing.json")
+    except StorageError as e:
+        print("StorageError:", e)
+
+    Path("broken.json").write_text("{not json", encoding="utf-8")
+    try:
+        Library.load("broken.json")
     except StorageError as e:
         print("StorageError:", e)
