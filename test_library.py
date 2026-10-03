@@ -22,12 +22,24 @@ def lib() -> Library:
 def test_book_loan_days_is_21():
     assert Book("b1", "T", "A").loan_days() == 21
 
+
+def test_unknown_item_id(lib: Library):
+   with pytest.raises(ItemNotFoundError):
+    lib.lend_item("m1", "zzz")
+    assert lib.get_member("m1").borrowed == []
+
+def test_unknown_member_id(lib:Library):
+   with pytest.raises(MemberNotFoundError):
+      lib.lend_item("nobody", "b1")
+   assert lib.get_item("b1") 
+    
+
 def test_member_has_reached_limit(lib: Library):
    lib.lend_item("m1","b1")
    lib.lend_item("m1", "b2")
    lib.lend_item("m1", "d1")
    with pytest.raises(LimitReachedError):
-       lib.lend_item("m1","d2")
+    lib.lend_item("m1","d2")
    assert lib.get_item("d2").is_available
    assert len(lib.get_member("m1").borrowed) == 3
     
