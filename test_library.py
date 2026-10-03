@@ -31,7 +31,14 @@ def test_unknown_item_id(lib: Library):
 def test_unknown_member_id(lib:Library):
    with pytest.raises(MemberNotFoundError):
       lib.lend_item("nobody", "b1")
-   assert lib.get_item("b1") 
+   assert lib.get_item("b1").is_available 
+   
+
+def test_duplicate_id(lib:Library):
+    with pytest.raises(DuplicateIdError):
+     lib.add_item(Book("b1", "Other", "Someone"))
+    assert lib.get_item("b1").title == "Python Basics"
+        
     
 
 def test_member_has_reached_limit(lib: Library):
