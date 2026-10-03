@@ -1,3 +1,5 @@
 broken.json -
-.pytest_cache/
+.vscode/
+library.json
+__pycache__/
 .pytest_cache/
