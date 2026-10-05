@@ -4,6 +4,7 @@ from library import (
     ItemUnavailableError, LimitReachedError, ItemNotFoundError,
     MemberNotFoundError, DuplicateIdError
 )
+from datetime import datetime, timedelta
 
 
 @pytest.fixture
@@ -96,3 +97,7 @@ def test_take_back_item_member_does_not_hold(lib: Library):
 
     assert not lib.get_item("b1").is_available
     assert len(lib.get_member("m1").borrowed) == 1
+    
+def test_due_date(lib:Library):
+    lib.lend_item("m1","b1")
+    
